@@ -625,7 +625,7 @@ int ParamInsert(SQLHDBC hdbc, DataType SampleDataType)
     if (SampleDataType == JSON)
     {
         const int SQL_INFX_JSON = -115; // This will be replaced with #def in odbc header file 
-        SQLSMALLINT MyCType = SQL_C_BINARY;  // if SQL_C_CHAR, then driver will do code set converssion.
+        SQLSMALLINT MyCType = SQL_C_BINARY;  // if SQL_C_CHAR, then driver will do code set conversion.
         rc = SQLBindParameter( hstmt, ++ParameterNumber, SQL_PARAM_INPUT, MyCType, SQL_INFX_JSON, 
                                           DATA_BUFF_SIZE, 0, DataBuffer1, DATA_BUFF_SIZE, &cbJson);
     }
