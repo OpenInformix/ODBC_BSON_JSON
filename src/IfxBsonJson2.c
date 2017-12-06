@@ -7,6 +7,8 @@
 // Authors:
 //      Sathyanesh Krishnan
 
+// IfxOdbcSample1.exe "DSN=odbc1"
+// IfxOdbcSample1.exe  "DRIVER={IBM INFORMIX ODBC DRIVER (64-bit)};SERVER=ids5;DATABASE=db1;HOST=x.x.x.x;PROTOCOL=onsoctcp;SERVICE=5555;UID=user1;PWD=xyz;";
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -24,6 +26,7 @@
 #include <infxcli.h>
 #endif
 
+#define QUOTE(...) #__VA_ARGS__
 
 
 #define         MY_STR_LEN      (128 + 1)
@@ -111,8 +114,8 @@ int main(int argc, char *argv[])
         DataType SampleDataType = BOTH;
 
         SampleDataType = BSON; // only BSON
-        SampleDataType = JSON; // only JSON
-        //SampleDataType = BOTH; // both JSON and BSON
+        //SampleDataType = JSON; // only JSON
+        SampleDataType = BOTH; // both JSON and BSON
 
         ServerSetup(hdbc, SampleDataType);
         PrintInfoSQLColumns(hdbc, "t1");
@@ -266,7 +269,8 @@ int ReadResult(SQLHDBC hdbc, char *SqlSelect)
 
             ++RowNum;
 
-            printf("\n{ --- Row# %d", RowNum);
+            printf("\n-Row# %d", RowNum);
+            printf("\n{");
 
             for (col = 1; col <= ColumnCount; ++col)
             {
@@ -295,7 +299,7 @@ int ReadResult(SQLHDBC hdbc, char *SqlSelect)
                 rc = SQLColAttribute(hstmt, col, SQL_COLUMN_TYPE_NAME,
                             MyCharacterAttributePtr, (SQLSMALLINT)sizeof(MyCharacterAttributePtr), 
                             &bufferLenUsed, &cbNumericAttributePtr);
-                printf("\n\n--Column Type : %s",  MyCharacterAttributePtr);
+                printf("\n\n -Column# %d   [%s]",  col, MyCharacterAttributePtr);
 
                 
                 if (strcmp("BSON", MyCharacterAttributePtr) == 0)
@@ -468,7 +472,7 @@ int PrintInfoSQLColumns(SQLHDBC hdbc, SQLCHAR *TableName)
                 break;
             }
 
-            printf("\n\n ------ Col Number = %d -------", ++ColNum);
+            printf("\n\n ------ Column# %d", ++ColNum);
             
             // Catalog Name (database)
             printf("\n  1 TABLE_CAT szCatalog=[%s]", szCatalog);
@@ -546,45 +550,168 @@ int PrintInfoSQLColumns(SQLHDBC hdbc, SQLCHAR *TableName)
 const unsigned char *GetJsonData(unsigned n)
 {
     static unsigned DocCount = 0;
-    static unsigned char *JsonDataList[3];
-    int i = 0;
-
+    static unsigned char *JsonDataList[32];
 
     if (DocCount == 0)
     {
         memset(JsonDataList, 0, sizeof(JsonDataList));
 
-        JsonDataList[DocCount++] = "{\"hello\": \"world 4\"}";
-        JsonDataList[DocCount++] = "{\"Hello\": \"World 5\"}";
+        JsonDataList[DocCount++] = "{\"Hello\": \"World!\"}";
+
+        ////////////////////////////////////
+        JsonDataList[DocCount++] = QUOTE(
+            {
+                "firstName": "John",
+                "lastName" : "Smith",
+                "isAlive" : true,
+                "age" : 27,
+                "address" : {
+                "streetAddress": "21 2nd Street",
+                    "city" : "New York",
+                    "state" : "NY",
+                    "postalCode" : "10021-3100"
+            },
+                "phoneNumbers": [
+                {
+                    "type": "home",
+                        "number" : "212 555-1234"
+                },
+                {
+                    "type": "office",
+                    "number" : "646 555-4567"
+                },
+                {
+                    "type": "mobile",
+                    "number" : "123 456-7890"
+                }
+                ],
+                    "children": [],
+                        "spouse" : null
+            }
+        );
+
+        ////////////////////////////////////
+        // JSON Schema (draft 4):
+        JsonDataList[DocCount++] = QUOTE(
+            {
+                "$schema": "http://json-schema.org/schema#",
+                "title" : "Product",
+                "type" : "object",
+                "required" : [
+                    "id",
+                        "name",
+                        "price"
+                ],
+                "properties" : {
+                        "id": {
+                            "type": "number",
+                                "description" : "Product identifier"
+                        },
+                            "name" : {
+                                "type": "string",
+                                    "description" : "Name of the product"
+                            },
+                                "price" : {
+                                    "type": "number",
+                                        "minimum" : 0
+                                },
+                                    "tags" : {
+                                        "type": "array",
+                                            "items" : {
+                                            "type": "string"
+                                        }
+                                    },
+                                        "stock": {
+                                        "type": "object",
+                                            "properties" : {
+                                            "warehouse": {
+                                                "type": "number"
+                                            },
+                                                "retail" : {
+                                                    "type": "number"
+                                                }
+                                        }
+                                    }
+                    }
+            }
+        );
+
+
+        ////////////////////////////////////
+        //The above JSON Schema can be used to test the validity of this JSON 
+        JsonDataList[DocCount++] = QUOTE(
+            {
+                "id": 1,
+                "name" : "Foo",
+                "price" : 123,
+                "tags" : [
+                    "Bar",
+                        "Eek"
+                ],
+                "stock" : {
+                        "warehouse": 300,
+                            "retail" : 20
+                    }
+            }
+        );
+
+        /////////////////////////////////////
+        //JsonDataList[DocCount++] = NULL;
+    } /////////// end of if block (DocCount == 0) 
+
+
+
+    if (DocCount > (sizeof(JsonDataList) / sizeof(void *))   )
+    {
+        printf("\n Error: GetJsonData, JsonDataList array overflow, fix this");
+        exit(1);
     }
 
     
-    i = n%DocCount;
-
-    return(JsonDataList[i]);
+    return(JsonDataList[n%DocCount]);
 }
 
 const unsigned char *GetBsonData(unsigned n)
 {
+    unsigned char *bp = NULL;
     static unsigned DocCount = 0;
-    static unsigned char *BsonDataList[3];
+    static unsigned char *BsonDataList[32];
     static unsigned char bson1[] = { 0x18, 0x00, 0x00, 0x00, 0x02, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x32, 0x00, 0x07,
                                                 0x00, 0x00, 0x00, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x32, 0x00, 0x00 };
-    int i = 0;
 
 
     if (DocCount == 0)
     {
         memset(BsonDataList, 0, sizeof(BsonDataList));
 
+        //////// {"hello": "world"}
+        BsonDataList[DocCount++] = "\x16\x00\x00\x00\x02hello\x00\x06\x00\x00\x00world\x00\x00";
+        //BsonDataList[DocCount++] = QUOTE(
+        //    \x16\x00\x00\x00                   // total document size
+        //    \x02                               // 0x02 = type String
+        //    hello\x00                          // field name
+        //    \x06\x00\x00\x00world\x00          // field value
+        //    \x00                               // 0x00 = type EOO ('end of object')
+        //);
+
         BsonDataList[DocCount++] = bson1;
         BsonDataList[DocCount++] = (unsigned char *)"\x18\x00\x00\x00\x02\x68\x65\x6c\x6c\x6f\x32\x00\x07\x00\x00\x00\x77\x6f\x72\x6c\x64\x32\x00\x00";
+    
+        /////////////////////////////////////
+        //BsonDataList[DocCount++] = NULL;
     }
 
 
-    i = n%DocCount;
 
-    return(BsonDataList[i]);
+    if (DocCount > (sizeof(BsonDataList) / sizeof(void *)))
+    {
+        printf("\n Error: GetBsonData, BsonDataList array overflow, fix this");
+        exit(1);
+    }
+
+    bp = BsonDataList[n%DocCount];
+
+    return(bp);
 }
 
 
@@ -610,7 +737,13 @@ int ParamInsert(SQLHDBC hdbc, DataType SampleDataType)
     rc == 0 ? 0 : GetDiagRec(rc, SQL_HANDLE_DBC, hdbc, "SQLAllocHandle:SQL_HANDLE_STMT");
 
 
+    
     sql = "insert into t1 values ( ?, ?)";
+    if (SampleDataType == BOTH)
+    {
+        sql = "insert into t1 (c1, c2, c3) values ( ?, ?, ?)";
+    }
+
     rc = SQLPrepare(hstmt, sql, SQL_NTS);
 
     ParameterNumber = 0;
@@ -622,14 +755,16 @@ int ParamInsert(SQLHDBC hdbc, DataType SampleDataType)
     // https://docs.microsoft.com/en-us/sql/odbc/reference/appendixes/converting-data-from-c-to-sql-data-types
 
 
-    if (SampleDataType == JSON)
+    if (SampleDataType == JSON || SampleDataType == BOTH)
     {
         const int SQL_INFX_JSON = -115; // This will be replaced with #def in odbc header file 
-        SQLSMALLINT MyCType = SQL_C_BINARY;  // if SQL_C_CHAR, then driver will do code set conversion.
-        rc = SQLBindParameter( hstmt, ++ParameterNumber, SQL_PARAM_INPUT, MyCType, SQL_INFX_JSON, 
+
+        // SQL_C_CHAR also can be used, then driver will do code set conversion too.
+        rc = SQLBindParameter( hstmt, ++ParameterNumber, SQL_PARAM_INPUT, SQL_C_BINARY, SQL_INFX_JSON,
                                           DATA_BUFF_SIZE, 0, DataBuffer1, DATA_BUFF_SIZE, &cbJson);
     }
-    else if (SampleDataType == BSON)
+
+    if (SampleDataType == BSON || SampleDataType == BOTH)
     {
         const int SQL_INFX_BSON = -116; // This will be replaced with #def in odbc header file 
 
@@ -639,7 +774,7 @@ int ParamInsert(SQLHDBC hdbc, DataType SampleDataType)
 
     
     c1 = 1000;
-    for( RecCount = 0; RecCount<2; ++RecCount)
+    for( RecCount = 0; RecCount<5; ++RecCount)
     {
 
 
@@ -662,6 +797,8 @@ int ParamInsert(SQLHDBC hdbc, DataType SampleDataType)
         if (SampleDataType == BSON || SampleDataType == BOTH)
         {
             const unsigned char *pData = GetBsonData(RecCount);
+
+            // Let us get the size of data from BSON doc.
             unsigned int DataLen = *((unsigned short *)pData);
 
 
