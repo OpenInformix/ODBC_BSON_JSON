@@ -7,8 +7,6 @@
 // Authors:
 //      Sathyanesh Krishnan
 
-// IfxOdbcSample1.exe "DSN=odbc1"
-// IfxOdbcSample1.exe  "DRIVER={IBM INFORMIX ODBC DRIVER (64-bit)};SERVER=ids5;DATABASE=db1;HOST=x.x.x.x;PROTOCOL=onsoctcp;SERVICE=5555;UID=user1;PWD=xyz;";
 
 #include <stdlib.h>
 #include <stdio.h>
