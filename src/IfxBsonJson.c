@@ -41,15 +41,16 @@ void  ServerSetup(SQLHDBC hdbc, DataType SampleDataType);
 void  LiteralInsert(SQLHDBC hdbc, DataType SampleDataType);
 int   ReadResult(SQLHDBC hdbc, char *SqlSelect);
 int   PrintInfoSQLColumns(SQLHDBC hdbc, SQLCHAR *TableName);
-void  PrintBson(unsigned char *data, int len);
+void  PrintBson(const unsigned char *data, unsigned len);
 int   ParamInsert(SQLHDBC hdbc, DataType SampleDataType);
 const unsigned char *GetJsonData(unsigned n);
 const unsigned char *GetBsonData(unsigned n);
 
 #define C1_START_VAL 999;
-#define NUM_PARAM_INSERTS 5
+#define NUM_ROWS_BY_PARAM_INSERT 5
 
-int     IsLiteralInsert = 0;
+unsigned    IsLiteralInsert = 0;
+int         DebugTrace = 0;
 
 
 int main(int argc, char *argv[])
@@ -307,23 +308,21 @@ int ReadResult(SQLHDBC hdbc, char *SqlSelect)
     SQLHSTMT        hstmt = NULL;
     int             DataBufferSize = sizeof(DataBuffer1) - 2;
 
-    printf("\n\n ----ReadResult ----");
-
-
     rc = SQLAllocHandle(SQL_HANDLE_STMT, hdbc, &hstmt);
-    rc == 0 ? 0 : GetDiagRec(rc, SQL_HANDLE_DBC, hdbc, "SQLAllocHandle:SQL_HANDLE_STMT");
+    rc == 0 ? 0 : GetDiagRec(rc, SQL_HANDLE_DBC, hdbc, "ReadResult::SQLAllocHandle:SQL_HANDLE_STMT");
 
+    printf("\n\n ----ReadResult ----");
 
     rc = SQLExecDirect(hstmt, SqlSelect, SQL_NTS);
     if ((rc == SQL_SUCCESS || rc == SQL_SUCCESS_WITH_INFO))
     {
         SQLSMALLINT     ColumnCount = 0;
-        int             RowNum = 0;
+        unsigned        RowNum = 0;
         int             RowNumGenVal = C1_START_VAL;
 
 
         rc = SQLNumResultCols(hstmt, &ColumnCount);
-        printf("\n ----Number of colum in the result is %d\n", ColumnCount);
+        printf("  #colum (%d)\n", ColumnCount);
 
         RowNumGenVal = RowNumGenVal - IsLiteralInsert;
         while ((rc = SQLFetch(hstmt)) != SQL_NO_DATA)
@@ -375,9 +374,13 @@ int ReadResult(SQLHDBC hdbc, char *SqlSelect)
                     unsigned int ExpDataLen = *((unsigned short *)pExpData);
                     int cr = -1;
 
-                    //memset(ExpDataBuffer, 0, sizeof(ExpDataBuffer));
-                    //memcpy(ExpDataBuffer, pExpData, ExpDataLen);
+ 
+                    // {"hello": "world"}
+                    //            h  e  l  l  o            w  o  r  l  d
+                    // 16 0 0 0 2 68 65 6C 6C 6F 0 6 0 0 0 77 6F 72 6C 64 0 0
+                    PrintBson(DataBuffer1, NumBytes);
 
+                    ///////////////// Compare with Exp value //////////
                     if (ExpDataLen == NumBytes)
                     {
                         cr = memcmp(pExpData, DataBuffer1, ExpDataLen);
@@ -385,26 +388,24 @@ int ReadResult(SQLHDBC hdbc, char *SqlSelect)
 
                     if (cr == 0)
                     {
-                        printf("\nBSON value OK for RowNum %d", RowNum);
+                        printf("\n -BSON verified and found OK");
                     }
                     else
                     {
-                        if (!(RowNum == 1 && IsLiteralInsert))
+                        //if (!(RowNum == 1 && IsLiteralInsert))
+                        if (RowNum <= IsLiteralInsert)
                         {
-                            // First record is likely LiteralInsert
-                            // We have nothing to compare, skip reporing error
+                            // This row is by LiteralInsert, 
+                            // We have no compare and verify facility for it
+                        }
+                        else
+                        {
+                            printf("\n -Error: BSON NOT OK for Row# %d", RowNum);
+                            printf("   Exp value is \n");
+                            PrintBson( pExpData, ExpDataLen);
 
-                            printf("\nError: BSON value Not OK for RowNum %d", RowNum);
                         }
                     }
-
-                    // {"hello": "world"}
-                    //            h  e  l  l  o            w  o  r  l  d
-                    // 16 0 0 0 2 68 65 6C 6C 6F 0 6 0 0 0 77 6F 72 6C 64 0 0
-                    PrintBson(DataBuffer1, (int)NumBytes);
-
-
-
                 }
                 else
                 {
@@ -433,9 +434,9 @@ int ReadResult(SQLHDBC hdbc, char *SqlSelect)
     return (0);
 }
 
-void PrintBson(unsigned char *data, int len)
+void PrintBson(const unsigned char *data, unsigned len)
 {
-    int i = 0;
+    unsigned i = 0;
     unsigned char c = 0;
 
     printf("\n");
@@ -811,7 +812,7 @@ const unsigned char *GetBsonData(unsigned n)
     }
 
     i = n%DocCount;
-    if (1)
+    if (DebugTrace)
     {
         printf("\n Requst=%d %% DocCount=%d is %d", n, DocCount, i );
     }
@@ -881,7 +882,7 @@ int ParamInsert(SQLHDBC hdbc, DataType SampleDataType)
 
     
     c1 = C1_START_VAL;
-    for( RecCount = 0; RecCount < NUM_PARAM_INSERTS; ++RecCount)
+    for( RecCount = 0; RecCount < NUM_ROWS_BY_PARAM_INSERT; ++RecCount)
     {
 
 
