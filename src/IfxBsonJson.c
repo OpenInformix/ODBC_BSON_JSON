@@ -32,7 +32,7 @@
 #define         DATA_BUFF_SIZE  4096
 unsigned char   DataBuffer1[DATA_BUFF_SIZE];
 unsigned char   DataBuffer2[DATA_BUFF_SIZE];
-//unsigned char   ExpDataBuffer[DATA_BUFF_SIZE];
+
 
 typedef enum { BOTH, JSON, BSON } DataType;
 
@@ -43,11 +43,13 @@ int   ReadResult(SQLHDBC hdbc, char *SqlSelect);
 int   PrintInfoSQLColumns(SQLHDBC hdbc, SQLCHAR *TableName);
 void  PrintBson(const unsigned char *data, unsigned len);
 int   ParamInsert(SQLHDBC hdbc, DataType SampleDataType);
+int   ParamUpdate(SQLHDBC hdbc, DataType SampleDataType);
+void  ServerCleanup(SQLHDBC hdbc);
 const unsigned char *GetJsonData(unsigned n);
 const unsigned char *GetBsonData(unsigned n);
 
 #define C1_START_VAL 999;
-#define NUM_ROWS_BY_PARAM_INSERT 5
+#define NUM_ROWS_BY_PARAM_INSERT 2
 
 unsigned    IsLiteralInsert = 0;
 int         DebugTrace = 0;
@@ -116,21 +118,31 @@ int main(int argc, char *argv[])
         printf("\n Connection Success! \n");
     }
 
+    if (1) // To turn on Insert Cursor
+    {
+        // FYI: SQL_INFX_ATTR_ENABLE_INSERT_CURSORS is specific to Informix
+        rc = SQLSetConnectAttr(hdbc, SQL_INFX_ATTR_ENABLE_INSERT_CURSORS, (SQLPOINTER)1, 0);
+    }
+
     if (1)
     {
         DataType SampleDataType = BOTH;
 
         SampleDataType = BSON; // only BSON
         //SampleDataType = JSON; // only JSON
-        SampleDataType = BOTH; // both JSON and BSON
+        //SampleDataType = BOTH; // both JSON and BSON
 
-        ServerSetup(hdbc, SampleDataType);
-        LiteralInsert(hdbc, SampleDataType);
-        PrintInfoSQLColumns(hdbc, "t1");
+        //ServerSetup(hdbc, SampleDataType);
+        //LiteralInsert(hdbc, SampleDataType);
+        //PrintInfoSQLColumns(hdbc, "t1");
 
         ParamInsert(hdbc, SampleDataType);
+        //ReadResult(hdbc, "SELECT * FROM t1");
 
-        ReadResult(hdbc, "SELECT * FROM t1");
+        //ParamUpdate(hdbc, SampleDataType);
+        //ReadResult(hdbc, "SELECT * FROM t1");
+
+        //ServerCleanup(hdbc);
     }
 
 
@@ -243,6 +255,41 @@ void  ServerSetup(SQLHDBC hdbc, DataType SampleDataType)
 
 
 
+void  ServerCleanup(SQLHDBC hdbc)
+{
+    SQLRETURN   rc = 0;
+    SQLHSTMT    hstmt = NULL;
+    int         i = 0;
+
+
+    static unsigned char *SetupSqlsBoth[] =
+    {
+        "TRUNCATE TABLE t1",
+        NULL,
+    };
+
+
+    unsigned char **SetupSqls = SetupSqlsBoth;
+
+
+    rc = SQLAllocHandle(SQL_HANDLE_STMT, hdbc, &hstmt);
+    rc == 0 ? 0 : GetDiagRec(rc, SQL_HANDLE_DBC, hdbc, "ServerSetup::SQLAllocHandle::SQL_HANDLE_STMT");
+
+    for (i = 0; SetupSqls[i] != NULL; ++i)
+    {
+        rc = SQLExecDirect(hstmt, SetupSqls[i], SQL_NTS);
+        printf("\n[%d] %s", rc, SetupSqls[i]);
+    }
+
+    if (hstmt)
+    {
+        SQLFreeStmt(hstmt, SQL_CLOSE);
+        SQLFreeHandle(SQL_HANDLE_STMT, hstmt);
+    }
+}
+
+
+
 
 void  LiteralInsert(SQLHDBC hdbc, DataType SampleDataType)
 {
@@ -330,6 +377,7 @@ int ReadResult(SQLHDBC hdbc, char *SqlSelect)
             SQLLEN StrLen_or_IndPtr = 0;
             int NumBytes = 0;
             int col = 0;
+            int id = 0;
 
             ++RowNum;
             ++RowNumGenVal;
@@ -360,6 +408,11 @@ int ReadResult(SQLHDBC hdbc, char *SqlSelect)
                 NumBytes = (int)((StrLen_or_IndPtr > DataBufferSize) || (StrLen_or_IndPtr == SQL_NO_TOTAL) ? DataBufferSize : StrLen_or_IndPtr);
                 DataBuffer1[NumBytes] = 0;
 
+                if (col == 1)
+                {
+                    id = atoi(DataBuffer1);
+                }
+
                 memset(MyCharacterAttributePtr, 0, sizeof(MyCharacterAttributePtr));
                 rc = SQLColAttribute(hstmt, col, SQL_COLUMN_TYPE_NAME,
                             MyCharacterAttributePtr, (SQLSMALLINT)sizeof(MyCharacterAttributePtr), 
@@ -369,7 +422,9 @@ int ReadResult(SQLHDBC hdbc, char *SqlSelect)
                 
                 if (strcmp("BSON", MyCharacterAttributePtr) == 0)
                 {
-                    const unsigned char *pExpData = GetBsonData(RowNumGenVal);
+                    // const unsigned char *pExpData = GetBsonData(RowNumGenVal);
+                    const unsigned char *pExpData = GetBsonData(id);
+
                     // Let us get the size of data from BSON doc.
                     unsigned int ExpDataLen = *((unsigned short *)pExpData);
                     int cr = -1;
@@ -917,8 +972,106 @@ int ParamInsert(SQLHDBC hdbc, DataType SampleDataType)
 
         //////////// Execute /////////////
         rc = SQLExecute(hstmt);
-        rc == 0 ? 0 : GetDiagRec(rc, SQL_HANDLE_STMT, hstmt, "SQLExecute");
+        rc == 0 ? 0 : GetDiagRec(rc, SQL_HANDLE_STMT, hstmt, "ParamInsert::SQLExecute");
     }
+
+
+    if (hstmt)
+    {
+        SQLFreeStmt(hstmt, SQL_CLOSE);
+        rc = SQLFreeStmt(hstmt, SQL_UNBIND);
+        rc = SQLFreeStmt(hstmt, SQL_RESET_PARAMS);
+        SQLFreeHandle(SQL_HANDLE_STMT, hstmt);
+    }
+
+
+    return(ErrorStatus);
+}
+
+
+
+
+int ParamUpdate(SQLHDBC hdbc, DataType SampleDataType)
+{
+    SQLHSTMT            hstmt = NULL;
+    SQLRETURN           rc = 0;
+    int                 ErrorStatus = 0;
+    char                *sql = NULL;
+    SQLUSMALLINT        ParameterNumber = 0;
+    unsigned int        RecCount = 0;
+    int                 c1 = 0;
+
+    SQLLEN     cbJson = 0;
+    SQLLEN     cbBson = 0;
+
+
+    printf("\n\n ----ParamUpdate ----");
+
+    rc = SQLAllocHandle(SQL_HANDLE_STMT, hdbc, &hstmt);
+    rc == 0 ? 0 : GetDiagRec(rc, SQL_HANDLE_DBC, hdbc, "SQLAllocHandle:SQL_HANDLE_STMT");
+
+
+    
+
+    sql = "UPDATE t1 SET c2 = ?  WHERE c1=1";
+    if (SampleDataType == BOTH)
+    {
+        sql = "UPDATE t1 SET c2 = ?, c3 = ?  WHERE c1=1";
+    }
+
+    rc = SQLPrepare(hstmt, sql, SQL_NTS);
+
+    ParameterNumber = 0;
+
+    if (SampleDataType == JSON || SampleDataType == BOTH)
+    {
+        const int SQL_INFX_JSON = -115; // This will be replaced with #def in odbc header file 
+
+                                        // SQL_C_CHAR also can be used, then driver will do code set conversion too.
+        rc = SQLBindParameter(hstmt, ++ParameterNumber, SQL_PARAM_INPUT, SQL_C_BINARY, SQL_INFX_JSON,
+            DATA_BUFF_SIZE, 0, DataBuffer1, DATA_BUFF_SIZE, &cbJson);
+    }
+
+    if (SampleDataType == BSON || SampleDataType == BOTH)
+    {
+        const int SQL_INFX_BSON = -116; // This will be replaced with #def in odbc header file 
+
+        rc = SQLBindParameter(hstmt, ++ParameterNumber, SQL_PARAM_INPUT, SQL_C_BINARY, SQL_INFX_BSON,
+            DATA_BUFF_SIZE, 0, DataBuffer2, DATA_BUFF_SIZE, &cbBson);
+    }
+
+
+
+    //////////// JSON ////////////////
+    if (SampleDataType == JSON || SampleDataType == BOTH)
+    {
+        const unsigned char *pData = GetJsonData(c1);
+        size_t DataLen = strlen(pData);
+
+        memset(DataBuffer1, 0, sizeof(DataBuffer1));
+        memcpy(DataBuffer1, pData, DataLen);
+        cbJson = SQL_NTS;      // if, let driver to find the data size
+        cbJson = DataLen;      // Let us tell driver about data size
+    }
+
+    //////////// BSON ////////////////
+    if (SampleDataType == BSON || SampleDataType == BOTH)
+    {
+        const unsigned char *pData = GetBsonData(c1);
+
+        // Let us get the size of data from BSON doc.
+        unsigned int DataLen = *((unsigned short *)pData);
+
+
+        memset(DataBuffer2, 0, sizeof(DataBuffer2));
+        memcpy(DataBuffer2, pData, DataLen);
+        cbBson = DataLen;      // Let us tell driver about data size
+    }
+
+    //////////// Execute /////////////
+    rc = SQLExecute(hstmt);
+    rc == 0 ? 0 : GetDiagRec(rc, SQL_HANDLE_STMT, hstmt, "ParamInsert::SQLExecute");
+    
 
 
     if (hstmt)
