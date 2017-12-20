@@ -1,0 +1,3 @@
+
+SQLIDEBUG=2:C:\sqd\sd
+sqliprt -tuple -notimestamp 
